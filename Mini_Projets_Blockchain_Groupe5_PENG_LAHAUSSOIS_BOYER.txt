@@ -1,0 +1,131 @@
+pragma solidity ^0.8.25;
+
+// SPDX-License-Identifier: GPL-3.0
+
+import "./Ownable.sol";
+import "./SafeMath.sol";
+
+contract Election is Ownable {
+    using SafeMath for uint256;
+
+    struct Participant {
+        uint256 id;
+        string name;
+        bool whitelisted;
+    }
+
+    struct Resolution {
+        uint256 id;
+        string title;
+        uint256 totalVotes;
+        bool finalized;
+        uint256 votesFor;
+        uint256 votesAgainst;
+        uint256 votesNeutral;
+        mapping(address => bool) hasVoted;
+    }
+
+    mapping(address => Participant) public participants;
+    mapping(uint256 => Resolution) public resolutions;
+
+    uint256 public participantsCount;
+    uint256 public resolutionsCount;
+
+    address public president;
+    address public scrutineer;
+    address public secretary;
+
+    event ParticipantAdded(address indexed participantAddress, string name);
+    event ParticipantRemoved(address indexed participantAddress);
+    event ResolutionVote(uint256 indexed resolutionId, address indexed voter, uint256 vote);
+    event ResolutionFinalized(uint256 indexed resolutionId, uint256 votesFor, uint256 votesAgainst, uint256 votesNeutral);
+
+    modifier onlyPresident() {
+        require(msg.sender == president, "Seul le president peut appeler cette fonction");
+        _;
+    }
+
+    modifier onlyScrutineer() {
+        require(msg.sender == scrutineer, "Seul le scrutateur peut appeler cette fonction");
+        _;
+    }
+
+    modifier onlySecretary() {
+        require(msg.sender == secretary, "Seule la secretaire peut appeler cette fonction");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function addParticipant(address _participantAddress, string memory _name) public onlyOwner {
+        participantsCount++;
+        participants[_participantAddress] = Participant(participantsCount, _name, true);
+        emit ParticipantAdded(_participantAddress, _name);
+    }
+
+    function removeParticipant(address _participantAddress) public onlyOwner {
+        delete participants[_participantAddress];
+        emit ParticipantRemoved(_participantAddress);
+    }
+
+    function setPresident(address _president) public onlyOwner {
+        president = _president;
+    }
+
+    function setScrutineer(address _scrutineer) public onlyOwner {
+        scrutineer = _scrutineer;
+    }
+
+    function setSecretary(address _secretary) public onlyOwner {
+        secretary = _secretary;
+    }
+
+    function createResolution(string memory _title) public onlyPresident {
+        resolutionsCount++;
+        Resolution storage newResolution = resolutions[resolutionsCount];
+        newResolution.id = resolutionsCount;
+        newResolution.title = _title;
+        newResolution.totalVotes = 0;
+        newResolution.finalized = false;
+        newResolution.votesFor = 0;
+        newResolution.votesAgainst = 0;
+        newResolution.votesNeutral = 0;
+
+    }
+
+    function voteOnResolution(uint256 _resolutionId, uint256 _vote) public {
+        require(participants[msg.sender].whitelisted, "Vous n'etes pas sur la liste blanche pour voter");
+        require(_resolutionId > 0 && _resolutionId <= resolutionsCount, "ID de resolution invalide");
+        require(!resolutions[_resolutionId].hasVoted[msg.sender], "Vous avez deja vote sur cette resolution");
+
+        resolutions[_resolutionId].totalVotes++;
+        resolutions[_resolutionId].hasVoted[msg.sender] = true;
+
+        if (_vote == 1) {
+            resolutions[_resolutionId].votesFor++;
+        } else if (_vote == 2) {
+            resolutions[_resolutionId].votesAgainst++;
+        } else if (_vote == 3) {
+            resolutions[_resolutionId].votesNeutral++;
+        } else {
+            revert("Option de vote invalide");
+        }
+
+        emit ResolutionVote(_resolutionId, msg.sender, _vote);
+    }
+
+    function finalizeResolution(uint256 _resolutionId) public onlyScrutineer {
+        require(!resolutions[_resolutionId].finalized, "Resolution deja finalisee");
+
+        resolutions[_resolutionId].finalized = true;
+
+        emit ResolutionFinalized(
+            _resolutionId,
+            resolutions[_resolutionId].votesFor,
+            resolutions[_resolutionId].votesAgainst,
+            resolutions[_resolutionId].votesNeutral
+        );
+    }
+}
